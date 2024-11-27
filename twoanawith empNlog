@@ -1,0 +1,157 @@
+twoanawith empNlogimport pandas as pd
+
+def read_and_clean_data(excel_path, sheet_name=0):
+    """
+    Read Excel file and clean data types
+    """
+    df = pd.read_excel(excel_path, sheet_name=sheet_name)
+    
+    string_columns = ['empid', 'login_id', 'emp_type', 'deleted_flag', 'status']
+    for col in string_columns:
+        if col in df.columns:
+            df[col] = df[col].astype(str).str.strip()
+            df[col] = df[col].replace('nan', '')
+    
+    return df
+
+def analyze_by_empid(df):
+    """
+    Analyze employee records grouped by empid and emp_type only
+    """
+    # Group by empid and emp_type
+    grouped = df.groupby(['empid', 'emp_type']).agg({
+        'deleted_flag': list,
+        'status': list
+    }).reset_index()
+    
+    # Add analysis columns
+    grouped['has_deleted_conflict'] = grouped['deleted_flag'].apply(
+        lambda x: 'Y' in [str(i).upper() for i in x] and 'N' in [str(i).upper() for i in x]
+    )
+    grouped['has_valid_status'] = grouped['status'].apply(
+        lambda statuses: any(str(s).upper() in ['A', 'L'] for s in statuses)
+    )
+    
+    # Filter valid conflicts
+    valid_conflicts = grouped[
+        grouped['has_deleted_conflict'] & 
+        grouped['has_valid_status']
+    ].copy()
+    
+    non_conflicts = grouped[
+        ~(grouped['has_deleted_conflict'] & 
+          grouped['has_valid_status'])
+    ].copy()
+    
+    # Process results
+    if len(valid_conflicts) > 0:
+        valid_conflicts['status_summary'] = valid_conflicts['status'].apply(
+            lambda x: ', '.join(sorted(set(str(i).upper() for i in x if str(i).strip())))
+        )
+        valid_conflicts['deleted_flag_summary'] = valid_conflicts['deleted_flag'].apply(
+            lambda x: ', '.join(sorted(set(str(i).upper() for i in x if str(i).strip())))
+        )
+    
+    if len(non_conflicts) > 0:
+        non_conflicts['status_summary'] = non_conflicts['status'].apply(
+            lambda x: ', '.join(sorted(set(str(i).upper() for i in x if str(i).strip())))
+        )
+        non_conflicts['deleted_flag_summary'] = non_conflicts['deleted_flag'].apply(
+            lambda x: ', '.join(sorted(set(str(i).upper() for i in x if str(i).strip())))
+        )
+        non_conflicts['reason'] = non_conflicts.apply(
+            lambda row: get_exclusion_reason(row), axis=1
+        )
+    
+    return valid_conflicts, non_conflicts
+
+def analyze_by_login(df):
+    """
+    Analyze employee records grouped by empid, login_id, and emp_type
+    """
+    # Group by empid, login_id, and emp_type
+    grouped = df.groupby(['empid', 'login_id', 'emp_type']).agg({
+        'deleted_flag': list,
+        'status': list
+    }).reset_index()
+    
+    # Add analysis columns
+    grouped['has_deleted_conflict'] = grouped['deleted_flag'].apply(
+        lambda x: 'Y' in [str(i).upper() for i in x] and 'N' in [str(i).upper() for i in x]
+    )
+    grouped['has_valid_status'] = grouped['status'].apply(
+        lambda statuses: any(str(s).upper() in ['A', 'L'] for s in statuses)
+    )
+    
+    # Filter valid conflicts
+    valid_conflicts = grouped[
+        grouped['has_deleted_conflict'] & 
+        grouped['has_valid_status']
+    ].copy()
+    
+    non_conflicts = grouped[
+        ~(grouped['has_deleted_conflict'] & 
+          grouped['has_valid_status'])
+    ].copy()
+    
+    # Process results
+    if len(valid_conflicts) > 0:
+        valid_conflicts['status_summary'] = valid_conflicts['status'].apply(
+            lambda x: ', '.join(sorted(set(str(i).upper() for i in x if str(i).strip())))
+        )
+        valid_conflicts['deleted_flag_summary'] = valid_conflicts['deleted_flag'].apply(
+            lambda x: ', '.join(sorted(set(str(i).upper() for i in x if str(i).strip())))
+        )
+    
+    if len(non_conflicts) > 0:
+        non_conflicts['status_summary'] = non_conflicts['status'].apply(
+            lambda x: ', '.join(sorted(set(str(i).upper() for i in x if str(i).strip())))
+        )
+        non_conflicts['deleted_flag_summary'] = non_conflicts['deleted_flag'].apply(
+            lambda x: ', '.join(sorted(set(str(i).upper() for i in x if str(i).strip())))
+        )
+        non_conflicts['reason'] = non_conflicts.apply(
+            lambda row: get_exclusion_reason(row), axis=1
+        )
+    
+    return valid_conflicts, non_conflicts
+
+def get_exclusion_reason(row):
+    """Helper function to determine why a record was excluded from conflicts"""
+    if not row['has_deleted_conflict']:
+        return "No deleted flag conflict"
+    if not row['has_valid_status']:
+        return "No Active/Leave status found"
+    return "Unknown"
+
+try:
+    # Read the Excel file
+    excel_path = "your_excel_file.xlsx"  # Replace with your Excel file path
+    df = read_and_clean_data(excel_path)
+    
+    # Analysis 1: By Employee ID only
+    print("\nAnalysis 1: Grouped by Employee ID")
+    print("-" * 50)
+    empid_conflicts, empid_non_conflicts = analyze_by_empid(df)
+    
+    print("\nConflicts found (grouped by Employee ID):")
+    print(empid_conflicts[['empid', 'emp_type', 'status_summary', 'deleted_flag_summary']])
+    
+    # Analysis 2: By Employee ID and Login ID
+    print("\nAnalysis 2: Grouped by Employee ID and Login ID")
+    print("-" * 50)
+    login_conflicts, login_non_conflicts = analyze_by_login(df)
+    
+    print("\nConflicts found (grouped by Employee ID and Login ID):")
+    print(login_conflicts[['empid', 'login_id', 'emp_type', 'status_summary', 'deleted_flag_summary']])
+    
+    # Save results to Excel files
+    with pd.ExcelWriter('employee_analysis_results.xlsx') as writer:
+        empid_conflicts.to_excel(writer, sheet_name='EmpID_Conflicts', index=False)
+        empid_non_conflicts.to_excel(writer, sheet_name='EmpID_NonConflicts', index=False)
+        login_conflicts.to_excel(writer, sheet_name='Login_Conflicts', index=False)
+        login_non_conflicts.to_excel(writer, sheet_name='Login_NonConflicts', index=False)
+    
+except Exception as e:
+    print(f"An error occurred: {str(e)}")
+    print("Please check your Excel file structure and data types")
